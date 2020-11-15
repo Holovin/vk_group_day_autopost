@@ -1,0 +1,41 @@
+{
+  "name": "vk_group_day_autopost",
+  "version": "0.0.1",
+  "description": "N/A",
+  "main": "src/index.ts",
+  "scripts": {
+    "build-ts": "tsc",
+    "start": "node dist/index.js",
+    "go": "npm run build-ts && npm run start"
+  },
+  "dependencies": {
+    "@types/cheerio": "^0.22.22",
+    "@types/tough-cookie": "^4.0.0",
+    "cheerio": "^1.0.0-rc.3",
+    "fs-jetpack": "^4.1.0",
+    "got": "^11.8.0",
+    "iconv-lite": "^0.6.2",
+    "lib-dd-helpers": "git+https://github.com/Holovin/lib-dd-helpers.git",
+    "lodash": "^4.17.20",
+    "nconf": "^0.10.0",
+    "pretty-error": "^2.1.2",
+    "tough-cookie": "^4.0.0",
+    "winston": "^3.3.3"
+  },
+  "devDependencies": {
+    "@types/nconf": "^0.10.0",
+    "@types/node": "^14.14.7",
+    "ts-node": "^9.0.0",
+    "typescript": "^4.0.5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Holovin/vk_group_day_autopost.git"
+  },
+  "author": "Alexander Holovin",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Holovin/vk_group_day_autopost/issues"
+  },
+  "homepage": "https://github.com/Holovin/vk_group_day_autopost#readme"
+}
