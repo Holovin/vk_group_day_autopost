@@ -3,7 +3,7 @@ module.exports = {
         name: 'vk_group_day_autopost',
 
         script: 'npm',
-        args: 'go',
+        args: 'run go',
 
         instances: 1,
         autorestart: true,

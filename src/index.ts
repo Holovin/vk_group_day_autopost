@@ -69,8 +69,8 @@ class App {
         }
 
         const now = Math.floor(+Date.now() / 1000);
-        const lastPostTime = lastPost.response.items[0].date;
-        const DAY = 86400; // seconds
+        const lastPostTime = +lastPost.response.items[0].date;
+        const DAY = 86400000; // ms
 
         return (now - lastPostTime) > DAY;
     }
@@ -121,7 +121,8 @@ class App {
         await new Promise(resolve => setTimeout(resolve, currentDate ? 1000000 : 10));
         currentDate = Math.floor(new Date().getTime() / 1000);
 
-        const needUpdate = app.wallCheck();
+        const needUpdate = await app.wallCheck();
+
         if (!needUpdate) {
             continue;
         }
