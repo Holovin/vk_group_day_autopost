@@ -6,14 +6,19 @@ import cheerioModule from 'cheerio';
 import * as cookie from 'tough-cookie';
 import * as iconv from 'iconv-lite';
 import sample from 'lodash/sample';
+import random from 'lodash/random';
+import { authenticator } from 'otplib';
+import puppeteer from 'puppeteer';
 
 class App {
-    private readonly got: Got;
+    private got: Got;
     private config: Config;
     private vkLib: VkLib;
     private log: LoggerType;
     private cheerio: cheerio.CheerioAPI;
     private readonly jar: cookie.CookieJar;
+    private browser: puppeteer.Browser;
+    private page: puppeteer.Page;
 
     private readonly groupId: number;
     private readonly userId: string;
@@ -24,12 +29,6 @@ class App {
 
         this.cheerio = cheerioModule;
         this.jar = new cookie.CookieJar();
-        this.jar.setCookieSync(
-            new cookie.Cookie({ key: 'remixsid', value: this.config.get('cookie')}),
-            'https://vk.com/',
-            { secure: true, http: true, }
-        );
-
         this.got = got.extend({
             headers: {
                 'Accept-Language': 'ru',
@@ -49,12 +48,76 @@ class App {
         this.userId = this.config.get('user_id');
     }
 
-    public async checkToken() {
-        const result = await this.vkLib.getMe();
-
-        if (!result) {
-            process.exit(1);
+    public async getAuthCookie() {
+        const cookies = await this.page.cookies();
+        const authCookie = cookies.find(item => item.name === 'remixsid');
+        if (!authCookie) {
+            this.log.warn(`No auth cookie`);
+            return;
         }
+
+        this.log.info(`Cookie value ${authCookie.value}`);
+        return authCookie.value;
+    }
+
+    public async refreshBrowser() {
+        const pos = random(1, 8);
+
+        await this.page.click(`#side_bar_inner li:nth-child(${pos})`);
+        await this.page.waitForNavigation();
+
+        const cookie = await this.getAuthCookie();
+        if (cookie) {
+            this.log.info('Refresh ok, cookies ok');
+            return true;
+        }
+
+        const client = await this.page.target().createCDPSession();
+        await client.send('Network.clearBrowserCookies');
+        this.log.info('Refresh failed, clear cookies');
+        return false;
+    }
+
+    public async login() {
+        await this.page.goto('https://vk.com', { waitUntil: 'domcontentloaded' });
+
+        await this.page.waitForSelector('#index_email');
+
+        await this.page.focus('#index_email');
+        await this.page.type('#index_email', this.config.get('login'), { delay: 50 });
+
+        await this.page.focus('#index_pass');
+        await this.page.type('#index_pass', this.config.get('password'));
+
+        await this.page.click('#index_login_button');
+
+        await this.page.waitForNavigation();
+        await this.page.waitForTimeout(1000);
+
+        const otp = authenticator.generate(this.config.get('secret'));
+        await this.page.focus('#authcheck_code');
+        await this.page.type('#authcheck_code', otp);
+
+        await this.page.click('#login_authcheck_submit_btn');
+
+        await this.page.waitForNavigation();
+        await this.page.waitForTimeout(1000);
+
+        this.log.info('Login done');
+    }
+
+    public async initBrowser() {
+        if (this.browser) {
+            this.log.warn('Browser already initialized');
+            return false;
+        }
+
+        this.browser = await puppeteer.launch({ headless: true });
+        this.page = await this.browser.newPage();
+        await this.page.setViewport({ width: 1920, height: 1080 });
+
+        this.log.info('Init browser ok');
+        return true;
     }
 
     public async wallCheck() {
@@ -65,25 +128,28 @@ class App {
         });
 
         if (!lastPost?.response?.items[0]?.date) {
+            this.log.warn(`Empty wall items`);
             return null;
         }
 
         const now = Math.floor(+Date.now() / 1000);
         const lastPostTime = +lastPost.response.items[0].date;
-        const DAY = 86400000; // ms
+        const DAY = 86400;
+
+        this.log.debug(`Diff: ${now - lastPostTime} > 86400`);
 
         return (now - lastPostTime) > DAY;
     }
 
     public async getBTPlace() {
-        const response = await this.got.get(this.userId);
+        let response = await this.got.get(this.userId);
 
         if (!response.body) {
+            this.log.warn(`No body at BT response`);
             return null;
         }
 
         const body = iconv.decode(response.rawBody, 'cp1251');
-
         const page = this.cheerio.load(body, { xmlMode: true });
         const result = page('.BugtrackerReporterProfile__content').text().trim().match(/#(\d+)\s/)?.[1];
 
@@ -91,10 +157,13 @@ class App {
             return +result;
         }
 
+        this.log.warn(`BT parse failed`);
         return null;
     }
 
     public async wallPost(text) {
+        this.log.info(`Post message ${text}`);
+
         return this.vkLib.apiVkCall('wall.post', {
             owner_id: -this.groupId,
             friends_only: 0,
@@ -102,16 +171,53 @@ class App {
             message: text,
         });
     }
+
+    public async syncCookiesFromWeb() {
+        const value = await this.getAuthCookie();
+
+        if (!value) {
+            this.log.warn(`Sync cookie failed`);
+            return false;
+        }
+
+        this.jar.setCookieSync(
+            new cookie.Cookie({ key: 'remixsid', value: value }),
+            'https://vk.com/',
+            { secure: true, http: true, }
+        );
+
+        this.log.info(`Sync cookie ok`);
+        return true;
+    }
+
+    public async checkToken() {
+        return await this.vkLib.getMe();
+    }
 }
 
 (async () => {
     const needPlace = 10;
     const lastDate  = 1621026000;  // 15/05/2021, 00:00:00
-    const startDate = 1605906000; // 21/11/2020, 00:00:00
+    const startDate = 1605906000;  // 21/11/2020, 00:00:00
 
     const log = Logger.getInstance().getLogger('main');
     const app = new App();
-    await app.checkToken();
+
+    if (!await app.checkToken()) {
+        log.error('Error at token check');
+        process.exit(1);
+    }
+
+    if (!await app.initBrowser()) {
+        log.error('Error at init browser');
+        process.exit(1);
+    }
+
+    await app.login();
+    if (!await app.syncCookiesFromWeb()) {
+        log.error('Error cookies sync');
+        process.exit(1);
+    }
 
     let currentDate;
     let currentPlace;
@@ -121,16 +227,28 @@ class App {
         await new Promise(resolve => setTimeout(resolve, currentDate ? 1000000 : 10));
         currentDate = Math.floor(new Date().getTime() / 1000);
 
-        const needUpdate = await app.wallCheck();
+        const isLogged = await app.refreshBrowser();
 
+        if (!isLogged) {
+            log.warn(`Cookies expired, re-login now...`);
+            await app.login();
+        }
+
+        if (!await app.syncCookiesFromWeb()) {
+            log.error(`Error sync cookies, try again after timeout`);
+            continue;
+        }
+
+        const needUpdate = await app.wallCheck();
         if (!needUpdate) {
+            log.info(`Skip update...`);
             continue;
         }
 
         log.info(`Need update...`);
-        const place = await app.getBTPlace();
-
+        let place = await app.getBTPlace();
         if (!place) {
+            log.error(`Can't parse BT place, try again after timeout`);
             continue;
         }
 
@@ -177,11 +295,9 @@ class App {
 
         if (currentDate > startDate) {
             const win = place <= needPlace;
-
             if (win) {
                 await app.wallPost(`\u{1F3C6} Лотерея завершена на ${days} дн. (осталось: ${deadline})\n`
-                    + `Выпал бочонок #${currentPlace}, поздравляем!\n`
-                    + `(бот уходит спать)`);
+                    + `Выпал бочонок #${currentPlace}, поздравляем!`);
                 break;
             }
 
