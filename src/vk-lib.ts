@@ -21,8 +21,8 @@ class VkLib {
         return this.user;
     }
 
-    constructor(got, { token, loginUrl }) {
-        this.log = Logger.getInstance().getLogger('VK');
+    constructor(got, loggerName, { token, loginUrl }) {
+        this.log = Logger.getInstance().getLogger(loggerName);
 
         this.tokenVk = token;
         this.loginUrl = loginUrl;
