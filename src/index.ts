@@ -91,12 +91,13 @@ class App {
 }
 
 (async () => {
-    const needPlace = 10;
-    const lastDate  = 1621026000;  // 15/05/2021, 00:00:00
-    const startDate = 1605906000;  // 21/11/2020, 00:00:00
-
     const log = Logger.getInstance().getLogger('main');
     const app = new App();
+
+    const config = Config.getInstance();
+    const needPlace = config.get('need_place');
+    const lastDate  = config.get('end_date');
+    const startDate = config.get('start_date');
 
     if (!await app.checkToken()) {
         log.error('Error at token check');
@@ -186,6 +187,7 @@ class App {
                 'Жалко продуктов нет нормальных (в холодильнике)',
                 '[голосовое сообщение]',
                 'Сегодня написал трек новый',
+                'Классный бот'
             ]);
 
             result = await app.wallPost(`${emoji} НЕТ\n\n Лотерея идёт уже ${days} дн. (осталось: ${deadline})\n`
